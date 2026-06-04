@@ -118,6 +118,10 @@
       color: var(--primary);
       border: 2px solid var(--primary);
     }
+    .btn-test {
+      background: linear-gradient(135deg, #fd79a8, #e84393);
+      color: #fff; margin-top: 10px; border: none;
+    }
     .divider {
       display: flex; align-items: center;
       margin: 20px 0; color: #aaa; font-size: 13px;
@@ -355,6 +359,34 @@
     }
     .preview-cancel { background: rgba(255,255,255,0.2); color: #fff; }
     .preview-send { background: var(--primary); color: #fff; }
+
+    /* Animal picker */
+    .picker-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 300;
+    }
+    .picker-card {
+      background: #fff; border-radius: 20px; padding: 28px 24px;
+      text-align: center; max-width: 340px; width: 90%;
+    }
+    .picker-card h3 { font-size: 18px; margin-bottom: 6px; color: #1a1a2e; }
+    .picker-card .picker-sub { font-size: 13px; color: #999; margin-bottom: 20px; }
+    .picker-btns { display: flex; gap: 10px; justify-content: center; }
+    .picker-btn {
+      flex: 1; padding: 16px 8px; border: 2px solid #e0e0e0;
+      border-radius: 16px; background: #fafafa; cursor: pointer;
+      font-size: 24px; transition: all 0.15s;
+    }
+    .picker-btn:hover { border-color: var(--primary); background: #f0edff; }
+    .picker-btn .animal-emoji { display: block; font-size: 32px; margin-bottom: 4px; }
+    .picker-btn .animal-name { display: block; font-size: 13px; color: #666; }
+
+    /* Name label on messages */
+    .msg-name {
+      font-size: 11px; color: var(--primary); font-weight: 600;
+      margin-bottom: 2px; padding-left: 4px;
+    }
   </style>
 </head>
 <body>
@@ -369,7 +401,18 @@
     <button class="btn btn-primary" onclick="joinRoom()">加入房间</button>
     <div class="divider"><span>或</span></div>
     <button class="btn btn-outline" onclick="createRoom()">创建新房间</button>
-    <p style="font-size:11px;color:#aaa;margin-top:12px">数据点对点直传，不经过服务器</p>
+    <div class="divider"><span>或</span></div>
+    <button class="btn btn-test" onclick="openTestRoom()">测试房间</button>
+    <p style="font-size:11px;color:#aaa;margin-top:12px">测试房间无需房间号，选择昵称即可加入</p>
+  </div>
+</div>
+
+<!-- Animal Picker -->
+<div class="picker-overlay" id="pickerOverlay" style="display:none">
+  <div class="picker-card">
+    <h3>选一个昵称</h3>
+    <p class="picker-sub">为你随机了3个可爱的动物名</p>
+    <div class="picker-btns" id="pickerBtns"></div>
   </div>
 </div>
 
@@ -408,6 +451,15 @@ let ws = null;
 let roomCode = '';
 let isHost = false;
 let connected = false;
+let displayName = '';
+
+const ANIMALS = [
+  { name: '小狗', emoji: '🐶' }, { name: '小猫', emoji: '🐱' }, { name: '小兔', emoji: '🐰' },
+  { name: '小熊', emoji: '🐻' }, { name: '小猪', emoji: '🐷' }, { name: '小鹿', emoji: '🦌' },
+  { name: '小狐', emoji: '🦊' }, { name: '小象', emoji: '🐘' }, { name: '小猴', emoji: '🐵' },
+  { name: '小羊', emoji: '🐑' }, { name: '小鸭', emoji: '🐤' }, { name: '小鸟', emoji: '🐦' },
+  { name: '小马', emoji: '🐴' }, { name: '小牛', emoji: '🐮' }, { name: '小鸡', emoji: '🐣' }
+];
 
 // DOM
 const $join = document.getElementById('joinScreen');
@@ -494,6 +546,13 @@ function addMessage(type, content, extra) {
       <div class="progress-text" id="progress-text-${extra.fileId}">0%</div>`;
   } else {
     bubble.textContent = content;
+  }
+
+  if (extra && extra.name) {
+    const nl = document.createElement('div');
+    nl.className = 'msg-name';
+    nl.textContent = extra.name;
+    row.appendChild(nl);
   }
 
   const time = document.createElement('div');
@@ -591,7 +650,7 @@ function handleWSMessage(msg) {
       setStatus('disconnected', '对方离开');
       break;
     case 'text':
-      addMessage('in', msg.content);
+      addMessage('in', msg.content, msg.name ? { name: msg.name } : null);
       break;
     case 'file-start':
       addSystem('收到文件: ' + msg.fileName + ' ' + formatSize(msg.fileSize) + ' (' + msg.totalChunks + '片)');
@@ -705,6 +764,38 @@ function handleBinaryChunk(data) {
   }
 }
 
+function pickRandom(arr, n) {
+  const copy = arr.slice();
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, n);
+}
+
+function openTestRoom() {
+  const picked = pickRandom(ANIMALS, 3);
+  const container = document.getElementById('pickerBtns');
+  container.innerHTML = picked.map(a =>
+    '<button class="picker-btn" onclick="enterTestRoom(\'' + a.name + '\')">' +
+    '<span class="animal-emoji">' + a.emoji + '</span>' +
+    '<span class="animal-name">' + a.name + '</span></button>'
+  ).join('');
+  document.getElementById('pickerOverlay').style.display = 'flex';
+}
+
+function enterTestRoom(name) {
+  displayName = name;
+  document.getElementById('pickerOverlay').style.display = 'none';
+  roomCode = 'TESTRM';
+  isHost = false;
+  showScreen('chat');
+  $roomBadge.textContent = '测试房';
+  setStatus('connecting', '连接中...');
+  addSystem('你选择了 ' + name + '，进入测试房间');
+  connectRelay();
+}
+
 async function createRoom() {
   const input = $roomInput.value.trim().toUpperCase();
   if (input.length !== 6 || !/^[A-Z0-9]+$/.test(input)) {
@@ -744,7 +835,9 @@ function send(data) {
 function sendText() {
   const text = $msgInput.value.trim();
   if (!text) return;
-  send(JSON.stringify({ type: 'text', content: text }));
+  const msg = { type: 'text', content: text };
+  if (displayName) msg.name = displayName;
+  send(JSON.stringify(msg));
   addMessage('out', text);
   $msgInput.value = '';
   $sendBtn.disabled = true;
@@ -921,6 +1014,7 @@ function leaveRoom() {
   if (ws) { ws.close(); ws = null; }
   roomCode = '';
   isHost = false;
+  displayName = '';
   $messages.innerHTML = '<div class="empty-chat" id="emptyState"><span class="icon">💬</span><span>等待对方加入...</span><span style="font-size:13px">分享房间号给对方</span></div>';
   showScreen('join');
 }

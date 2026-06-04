@@ -270,7 +270,8 @@ wss.on('connection', (ws) => {
         if (!ROOMS[code]) ROOMS[code] = [];
         ROOMS[code] = ROOMS[code].filter(c => c.id !== cid);
 
-        if (ROOMS[code].length >= 2) {
+        const limit = code === 'TESTRM' ? 50 : 2;
+        if (ROOMS[code].length >= limit) {
           ws.send(JSON.stringify({ type: 'room-full' }));
           return;
         }
@@ -307,7 +308,7 @@ wss.on('connection', (ws) => {
     if (room && ROOMS[room]) {
       ROOMS[room] = ROOMS[room].filter(c => c.id !== cid);
       relay(room, cid, JSON.stringify({ type: 'peer-left' }));
-      if (ROOMS[room].length === 0) delete ROOMS[room];
+      if (ROOMS[room].length === 0 && room !== 'TESTRM') delete ROOMS[room];
     }
   });
 

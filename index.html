@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#6c5ce7">
+  <link rel="manifest" href="manifest.json">
+  <title>ChatLink</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary: #6c5ce7;
+      --primary-dark: #5a4bd1;
+      --bg: #f0f2f5;
+      --surface: #fff;
+      --text: #1a1a2e;
+      --text-secondary: #666;
+      --bubble-out: #6c5ce7;
+      --bubble-out-text: #fff;
+      --bubble-in: #fff;
+      --bubble-in-text: #1a1a2e;
+      --danger: #e74c3c;
+      --radius: 16px;
+      --shadow: 0 2px 12px rgba(0,0,0,0.08);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-font-smoothing: antialiased;
+    }
+    .screen { display: none; flex-direction: column; height: 100%; }
+    .screen.active { display: flex; }
+
+    /* Join Screen */
+    .join-screen {
+      justify-content: center;
+      align-items: center;
+      padding: 24px;
+      background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+    }
+    .join-card {
+      background: var(--surface);
+      border-radius: 20px;
+      padding: 36px 28px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 20px 60px rgba(108,92,231,0.3);
+      text-align: center;
+    }
+    .join-card h1 {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--primary);
+      margin-bottom: 4px;
+      letter-spacing: -0.5px;
+    }
+    .join-card .subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 28px;
+    }
+    .join-card label {
+      display: block;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .join-card input {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 12px;
+      font-size: 18px;
+      text-align: center;
+      letter-spacing: 6px;
+      font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+      outline: none;
+      transition: border-color 0.2s;
+      text-transform: uppercase;
+    }
+    .join-card input:focus { border-color: var(--primary); }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-top: 10px;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+      margin-top: 16px;
+    }
+    .btn-outline {
+      background: transparent;
+      color: var(--primary);
+      border: 2px solid var(--primary);
+    }
+    .divider {
+      display: flex; align-items: center;
+      margin: 20px 0; color: #aaa; font-size: 13px;
+    }
+    .divider::before, .divider::after {
+      content: ''; flex: 1; height: 1px; background: #e0e0e0;
+    }
+    .divider span { padding: 0 12px; }
+
+    /* Chat Screen */
+    .chat-header {
+      background: var(--primary);
+      color: #fff;
+      padding: 12px 16px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .chat-header .room-badge {
+      background: rgba(255,255,255,0.2);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      cursor: pointer;
+      font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    }
+    .chat-header .status {
+      font-size: 12px;
+      opacity: 0.9;
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #2ecc71;
+    }
+    .status-dot.disconnected { background: #e74c3c; }
+    .status-dot.connecting { background: #f39c12; animation: pulse 1s infinite; }
+    @keyframes pulse { 50% { opacity: 0.4; } }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .msg-row {
+      display: flex;
+      max-width: 85%;
+    }
+    .msg-row.in { align-self: flex-start; }
+    .msg-row.out { align-self: flex-end; }
+    .msg-bubble {
+      padding: 12px 16px;
+      border-radius: 18px;
+      font-size: 15px;
+      line-height: 1.4;
+      word-break: break-word;
+      position: relative;
+    }
+    .msg-row.in .msg-bubble {
+      background: var(--bubble-in);
+      color: var(--bubble-in-text);
+      border-bottom-left-radius: 6px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    .msg-row.out .msg-bubble {
+      background: var(--bubble-out);
+      color: var(--bubble-out-text);
+      border-bottom-right-radius: 6px;
+    }
+    .msg-row.system {
+      align-self: center;
+      max-width: 100%;
+    }
+    .msg-row.system .msg-bubble {
+      background: rgba(0,0,0,0.05);
+      color: var(--text-secondary);
+      font-size: 12px;
+      padding: 6px 14px;
+      border-radius: 12px;
+    }
+    .msg-bubble img, .msg-bubble video {
+      max-width: 240px;
+      max-height: 320px;
+      border-radius: 10px;
+      display: block;
+      cursor: pointer;
+    }
+    .msg-bubble .file-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(0,0,0,0.05);
+      padding: 10px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .msg-row.out .msg-bubble .file-card { background: rgba(255,255,255,0.15); }
+    .file-card .file-icon { font-size: 28px; }
+    .file-card .file-info { font-size: 13px; }
+    .file-card .file-size { font-size: 11px; opacity: 0.7; }
+    .msg-time {
+      font-size: 10px;
+      opacity: 0.6;
+      margin-top: 4px;
+      padding: 0 4px;
+    }
+    .msg-row.out .msg-time { text-align: right; }
+
+    .empty-chat {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-secondary);
+      gap: 12px;
+    }
+    .empty-chat .icon { font-size: 56px; opacity: 0.6; }
+
+    /* Input bar */
+    .input-bar {
+      background: var(--surface);
+      padding: 10px 12px;
+      padding-bottom: calc(10px + var(--safe-bottom));
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      flex-shrink: 0;
+      box-shadow: 0 -1px 4px rgba(0,0,0,0.04);
+    }
+    .input-bar button {
+      width: 40px; height: 40px;
+      border: none; border-radius: 50%;
+      font-size: 20px;
+      cursor: pointer;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+    .btn-attach {
+      background: #f0f0f0;
+      color: var(--text-secondary);
+    }
+    .btn-send {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn-send:disabled {
+      background: #ccc;
+      cursor: default;
+    }
+    .input-bar textarea {
+      flex: 1;
+      border: none;
+      background: #f0f0f0;
+      border-radius: 20px;
+      padding: 10px 16px;
+      font-size: 15px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      max-height: 100px;
+      min-height: 40px;
+      line-height: 1.4;
+    }
+    #fileInput { display: none; }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 100px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.8);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    .toast.show { opacity: 1; }
+    .toast.success { background: #27ae60; }
+    .toast.error { background: var(--danger); }
+
+    /* File preview */
+    .preview-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; z-index: 200; gap: 16px;
+    }
+    .preview-overlay img, .preview-overlay video {
+      max-width: 90vw; max-height: 60vh; border-radius: 12px;
+    }
+    .preview-overlay .preview-name { color: #fff; font-size: 14px; }
+    .preview-actions { display: flex; gap: 12px; }
+    .preview-actions button {
+      padding: 12px 28px; border: none; border-radius: 24px;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+    }
+    .preview-cancel { background: rgba(255,255,255,0.2); color: #fff; }
+    .preview-send { background: var(--primary); color: #fff; }
+  </style>
+</head>
+<body>
+
+<!-- Join Screen -->
+<div class="screen active" id="joinScreen">
+  <div class="join-card">
+    <h1>ChatLink</h1>
+    <p class="subtitle">输入房间号，即时连接</p>
+    <label>房间号</label>
+    <input type="text" id="roomInput" maxlength="6" placeholder="输入6位房间号" autocomplete="off">
+    <button class="btn btn-primary" onclick="joinRoom()">加入房间</button>
+    <div class="divider"><span>或</span></div>
+    <button class="btn btn-outline" onclick="createRoom()">创建新房间</button>
+    <p style="font-size:11px;color:#aaa;margin-top:12px">数据点对点直传，不经过服务器</p>
+  </div>
+</div>
+
+<!-- Chat Screen -->
+<div class="screen" id="chatScreen">
+  <div class="chat-header">
+    <button style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;padding:0" onclick="leaveRoom()">←</button>
+    <span style="font-weight:700">ChatLink</span>
+    <span class="room-badge" id="roomBadge" onclick="copyRoomCode()">------</span>
+    <span class="status" id="statusBar">
+      <span class="status-dot connecting" id="statusDot"></span>
+      <span id="statusText">连接中...</span>
+    </span>
+  </div>
+  <div class="messages" id="messages">
+    <div class="empty-chat" id="emptyState">
+      <span class="icon">💬</span>
+      <span>等待对方加入...</span>
+      <span style="font-size:13px">分享房间号给对方</span>
+    </div>
+  </div>
+  <div class="input-bar">
+    <button class="btn-attach" onclick="document.getElementById('fileInput').click()" title="发送文件">📎</button>
+    <input type="file" id="fileInput" multiple accept="image/*,video/*" onchange="onFilesSelected(event)">
+    <textarea id="msgInput" rows="1" placeholder="输入消息..." onkeydown="onInputKey(event)" oninput="autoResize(this)"></textarea>
+    <button class="btn-send" id="sendBtn" onclick="sendText()" disabled>➤</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="preview-overlay" id="previewOverlay" style="display:none"></div>
+
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script>
+// State
+let peer = null;
+let conn = null;
+let roomCode = '';
+let isHost = false;
+
+// DOM
+const $join = document.getElementById('joinScreen');
+const $chat = document.getElementById('chatScreen');
+const $messages = document.getElementById('messages');
+const $empty = document.getElementById('emptyState');
+const $msgInput = document.getElementById('msgInput');
+const $sendBtn = document.getElementById('sendBtn');
+const $roomBadge = document.getElementById('roomBadge');
+const $statusDot = document.getElementById('statusDot');
+const $statusText = document.getElementById('statusText');
+const $toast = document.getElementById('toast');
+const $preview = document.getElementById('previewOverlay');
+const $fileInput = document.getElementById('fileInput');
+const $roomInput = document.getElementById('roomInput');
+
+let toastTimer = null;
+let pendingFiles = [];
+
+// Generate a 6-char room code (uppercase letters + digits, no ambiguous chars)
+function genRoomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  if (name === 'join') $join.classList.add('active');
+  else $chat.classList.add('active');
+}
+
+function setStatus(s, txt) {
+  $statusDot.className = 'status-dot ' + s;
+  $statusText.textContent = txt;
+}
+
+function showToast(msg, type) {
+  clearTimeout(toastTimer);
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast ' + (type || '') + ' show';
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function copyRoomCode() {
+  navigator.clipboard.writeText(roomCode).then(() => showToast('房间号已复制', 'success'));
+}
+
+function addMessage(type, content, extra) {
+  $empty.style.display = 'none';
+  const row = document.createElement('div');
+  row.className = 'msg-row ' + type;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+
+  if (extra && extra.fileType && extra.fileType.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = content;
+    img.onclick = () => openPreview(content, 'image');
+    bubble.appendChild(img);
+  } else if (extra && extra.fileType && extra.fileType.startsWith('video/')) {
+    const vid = document.createElement('video');
+    vid.src = content;
+    vid.controls = true;
+    vid.playsInline = true;
+    vid.onclick = (e) => { e.stopPropagation(); vid.play(); };
+    bubble.appendChild(vid);
+  } else if (extra && extra.fileType === 'file') {
+    const card = document.createElement('div');
+    card.className = 'file-card';
+    card.onclick = () => { const a = document.createElement('a'); a.href = content; a.download = extra.fileName; a.click(); };
+    const icon = document.createElement('span');
+    icon.className = 'file-icon';
+    icon.textContent = '📄';
+    card.appendChild(icon);
+    const info = document.createElement('div');
+    info.className = 'file-info';
+    info.innerHTML = `<strong>${extra.fileName}</strong><br><span class="file-size">${extra.fileSize}</span>`;
+    card.appendChild(info);
+    bubble.appendChild(card);
+  } else {
+    bubble.textContent = content;
+  }
+
+  const time = document.createElement('div');
+  time.className = 'msg-time';
+  time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  row.appendChild(bubble);
+  row.appendChild(time);
+  $messages.appendChild(row);
+  $messages.scrollTop = $messages.scrollHeight;
+}
+
+function addSystem(msg) {
+  addMessage('system', msg);
+}
+
+function openPreview(src, _type) {
+  $preview.style.display = 'flex';
+  $preview.innerHTML = `
+    <img src="${src}" style="max-width:90vw;max-height:70vh;border-radius:12px">
+    <div class="preview-actions">
+      <button class="preview-cancel" onclick="closePreview()">关闭</button>
+    </div>`;
+}
+
+function closePreview() {
+  $preview.style.display = 'none';
+  $preview.innerHTML = '';
+  pendingFiles = [];
+}
+
+function sendPreviewFile() {
+  const file = pendingFiles[0];
+  if (file) sendFile(file);
+  closePreview();
+}
+
+async function createRoom() {
+  roomCode = genRoomCode();
+  isHost = true;
+  await initPeer('chatlink-' + roomCode);
+  showScreen('chat');
+  $roomBadge.textContent = roomCode;
+  addSystem('等待对方加入... 房间号: ' + roomCode);
+  setStatus('connecting', '等待连接...');
+}
+
+async function joinRoom() {
+  const input = $roomInput.value.trim().toUpperCase();
+  if (input.length !== 6 || !/^[A-Z0-9]+$/.test(input)) {
+    showToast('请输入6位房间号', 'error');
+    return;
+  }
+  roomCode = input;
+  isHost = false;
+  $roomBadge.textContent = roomCode;
+  showScreen('chat');
+  addSystem('正在加入房间 ' + roomCode + '...');
+
+  await initPeer('chatlink-client-' + genRoomCode());
+  setStatus('connecting', '正在连接...');
+
+  conn = peer.connect('chatlink-' + roomCode, { reliable: true });
+  setupConnection(conn);
+}
+
+function initPeer(id) {
+  return new Promise((resolve, reject) => {
+    peer = new Peer(id, {
+      host: '0.peerjs.com',
+      port: 443,
+      secure: true,
+      debug: 0
+    });
+
+    peer.on('open', () => resolve());
+
+    peer.on('error', (err) => {
+      console.error('Peer error:', err);
+      if (err.type === 'unavailable-id') {
+        peer = new Peer(id + '-' + Date.now().toString(36), {
+          host: '0.peerjs.com', port: 443, secure: true, debug: 0
+        });
+        peer.on('open', () => resolve());
+      } else {
+        showToast('连接失败: ' + (err.message || err.type), 'error');
+        reject(err);
+      }
+    });
+
+    peer.on('connection', (incoming) => {
+      if (isHost && !conn) {
+        conn = incoming;
+        setupConnection(conn);
+      }
+    });
+
+    peer.on('disconnected', () => {
+      if (peer && !peer.destroyed) peer.reconnect();
+    });
+  });
+}
+
+function setupConnection(c) {
+  conn = c;
+
+  conn.on('open', () => {
+    addSystem('已连接！可以开始聊天了');
+    setStatus('connected', '已连接');
+  });
+
+  conn.on('data', (data) => {
+    if (typeof data === 'string') {
+      try {
+        const parsed = JSON.parse(data);
+        if (parsed.type === 'text') {
+          addMessage('in', parsed.content);
+        } else if (parsed.type === 'file') {
+          addMessage('in', parsed.content, parsed);
+        }
+      } catch {
+        addMessage('in', data);
+      }
+    }
+  });
+
+  conn.on('close', () => {
+    addSystem('对方已断开');
+    setStatus('disconnected', '已断开');
+  });
+
+  conn.on('error', (err) => {
+    addSystem('连接错误: ' + err.message);
+    setStatus('disconnected', '错误');
+  });
+}
+
+function send(data) {
+  if (!conn || !conn.open) {
+    showToast('未连接', 'error');
+    return;
+  }
+  conn.send(data);
+}
+
+function sendText() {
+  const text = $msgInput.value.trim();
+  if (!text) return;
+  send(JSON.stringify({ type: 'text', content: text }));
+  addMessage('out', text);
+  $msgInput.value = '';
+  $sendBtn.disabled = true;
+  $msgInput.style.height = 'auto';
+}
+
+function sendFile(file) {
+  if (!conn || !conn.open) {
+    showToast('未连接', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const extra = {
+      fileName: file.name,
+      fileSize: formatSize(file.size),
+      fileType: file.type.startsWith('image/') ? file.type :
+                file.type.startsWith('video/') ? file.type : 'file'
+    };
+    send(JSON.stringify({ type: 'file', content: reader.result, ...extra }));
+    addMessage('out', reader.result, extra);
+    showToast('已发送', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function onFilesSelected(e) {
+  const files = Array.from(e.target.files);
+  if (files.length === 0) return;
+
+  const file = files[0];
+  if (file.size > 50 * 1024 * 1024) {
+    showToast('文件最大 50MB', 'error');
+    $fileInput.value = '';
+    return;
+  }
+
+  pendingFiles = [file];
+  $preview.style.display = 'flex';
+
+  if (file.type.startsWith('image/')) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      $preview.innerHTML = `
+        <img src="${reader.result}" style="max-width:90vw;max-height:60vh;border-radius:12px">
+        <div class="preview-name">${file.name} (${formatSize(file.size)})</div>
+        <div class="preview-actions">
+          <button class="preview-cancel" onclick="closePreview()">取消</button>
+          <button class="preview-send" onclick="sendPreviewFile()">发送</button>
+        </div>`;
+    };
+    reader.readAsDataURL(file);
+  } else if (file.type.startsWith('video/')) {
+    const url = URL.createObjectURL(file);
+    $preview.innerHTML = `
+      <video src="${url}" controls playsinline style="max-width:90vw;max-height:50vh;border-radius:12px"></video>
+      <div class="preview-name">${file.name} (${formatSize(file.size)})</div>
+      <div class="preview-actions">
+        <button class="preview-cancel" onclick="closePreview()">取消</button>
+        <button class="preview-send" onclick="sendPreviewFile()">发送</button>
+      </div>`;
+  } else {
+    $preview.innerHTML = `
+      <div style="color:#fff;font-size:48px">📄</div>
+      <div class="preview-name">${file.name} (${formatSize(file.size)})</div>
+      <div class="preview-actions">
+        <button class="preview-cancel" onclick="closePreview()">取消</button>
+        <button class="preview-send" onclick="sendPreviewFile()">发送</button>
+      </div>`;
+  }
+  $fileInput.value = '';
+}
+
+function onInputKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendText();
+  }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+  $sendBtn.disabled = el.value.trim() === '';
+}
+
+function leaveRoom() {
+  if (conn) { conn.close(); conn = null; }
+  if (peer) { peer.destroy(); peer = null; }
+  roomCode = '';
+  isHost = false;
+  $messages.innerHTML = '<div class="empty-chat" id="emptyState"><span class="icon">💬</span><span>等待对方加入...</span><span style="font-size:13px">分享房间号给对方</span></div>';
+  showScreen('join');
+}
+
+// Register service worker for PWA
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js');
+}
+</script>
+</body>
+</html>

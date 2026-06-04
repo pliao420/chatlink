@@ -319,7 +319,11 @@ function relay(room, senderId, data) {
   if (!room || !ROOMS[room]) return;
   const peer = ROOMS[room].find(c => c.id !== senderId);
   if (peer && peer.ws.readyState === 1) {
-    peer.ws.send(data, { binary: Buffer.isBuffer(data) });
+    if (Buffer.isBuffer(data) && data.length > 0 && data[0] === 0x7b) {
+      peer.ws.send(data.toString());
+    } else {
+      peer.ws.send(data, { binary: Buffer.isBuffer(data) });
+    }
   }
 }
 

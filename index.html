@@ -591,6 +591,7 @@ function handleWSMessage(msg) {
       addMessage('in', msg.content);
       break;
     case 'file-start':
+      addSystem('收到文件: ' + msg.fileName + ' ' + formatSize(msg.fileSize) + ' (' + msg.totalChunks + '片)');
       incomingFiles[msg.fileId] = {
         chunks: new Array(msg.totalChunks),
         received: 0,
@@ -603,6 +604,7 @@ function handleWSMessage(msg) {
     case 'file-end':
       const f = incomingFiles[msg.fileId];
       if (f) {
+        addSystem('文件接收完成，正在组装...');
         const merged = new Uint8Array(f.fileSize);
         let offset = 0;
         for (let i = 0; i < f.chunks.length; i++) {
@@ -614,12 +616,17 @@ function handleWSMessage(msg) {
         const url = URL.createObjectURL(blob);
         updateFileMessage(msg.fileId, url, f);
         delete incomingFiles[msg.fileId];
+        addSystem('文件已就绪');
       }
       break;
   }
 }
 
 function handleBinaryChunk(data) {
+  if (!(data instanceof ArrayBuffer)) {
+    addSystem('收到非二进制数据: ' + typeof data);
+    return;
+  }
   const header = new Uint8Array(data.slice(0, 16));
   const fileId = new TextDecoder().decode(header.slice(0, 12)).trimEnd();
   const index = (header[12] << 24) | (header[13] << 16) | (header[14] << 8) | header[15];
@@ -705,6 +712,7 @@ function sendFile(file) {
   addMessage('out', '', {
     fileType, fileName: file.name, fileSize: formatSize(file.size), fileId
   });
+  addSystem('开始发送: ' + file.name + ' (' + totalChunks + '片)');
 
   const reader = file.stream().getReader();
   let chunkIndex = 0;

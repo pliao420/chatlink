@@ -539,7 +539,8 @@ function sendPreviewFile() {
 }
 
 async function createRoom() {
-  roomCode = genRoomCode();
+  const input = $roomInput.value.trim().toUpperCase();
+  roomCode = (input.length === 6 && /^[A-Z0-9]+$/.test(input)) ? input : genRoomCode();
   isHost = true;
   await initPeer('chatlink-' + roomCode);
   showScreen('chat');
@@ -563,8 +564,15 @@ async function joinRoom() {
   await initPeer('chatlink-client-' + genRoomCode());
   setStatus('connecting', '正在连接...');
 
-  conn = peer.connect('chatlink-' + roomCode, { reliable: true });
+  conn = peer.connect('chatlink-' + roomCode, { reliable: true, serialization: 'binary' });
   setupConnection(conn);
+
+  setTimeout(() => {
+    if (conn && !conn.open) {
+      addSystem('连接超时，请确认对方已创建房间且房间号正确');
+      setStatus('disconnected', '超时');
+    }
+  }, 15000);
 }
 
 function initPeer(id) {
@@ -592,7 +600,8 @@ function initPeer(id) {
     });
 
     peer.on('connection', (incoming) => {
-      if (isHost && !conn) {
+      if (isHost) {
+        if (conn) { conn.close(); }
         conn = incoming;
         setupConnection(conn);
       }
@@ -674,11 +683,13 @@ function setupConnection(c) {
   conn.on('close', () => {
     addSystem('对方已断开');
     setStatus('disconnected', '已断开');
+    conn = null;
   });
 
   conn.on('error', (err) => {
     addSystem('连接错误: ' + err.message);
     setStatus('disconnected', '错误');
+    conn = null;
   });
 }
 

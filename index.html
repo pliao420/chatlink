@@ -572,7 +572,7 @@ async function joinRoom() {
       addSystem('连接超时，请确认对方已创建房间且房间号正确');
       setStatus('disconnected', '超时');
     }
-  }, 15000);
+  }, 30000);
 }
 
 function initPeer(id) {
@@ -581,7 +581,25 @@ function initPeer(id) {
       host: '0.peerjs.com',
       port: 443,
       secure: true,
-      debug: 3
+      debug: 3,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          {
+            urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          },
+          {
+            urls: 'turn:freestun.net:3478',
+            username: 'free',
+            credential: 'free'
+          }
+        ],
+        iceCandidatePoolSize: 2
+      }
     });
 
     peer.on('open', (pid) => {

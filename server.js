@@ -233,6 +233,9 @@ wss.on('connection', (ws) => {
   const cid = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   ws.on('message', (data) => {
+    const kind = Buffer.isBuffer(data) ? 'buffer' : typeof data;
+    const len = Buffer.isBuffer(data) ? data.length : typeof data === 'string' ? data.length : data.byteLength || 0;
+    console.log('[msg] room=' + room + ' kind=' + kind + ' len=' + len);
     const isBinary = Buffer.isBuffer(data) || data instanceof ArrayBuffer;
     const raw = Buffer.isBuffer(data) ? data : Buffer.from(data);
 

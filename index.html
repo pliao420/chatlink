@@ -226,6 +226,26 @@
     .file-card .file-icon { font-size: 28px; }
     .file-card .file-info { font-size: 13px; }
     .file-card .file-size { font-size: 11px; opacity: 0.7; }
+    .progress-wrap {
+      margin-top: 6px;
+      background: rgba(0,0,0,0.1);
+      border-radius: 6px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .msg-row.out .progress-wrap { background: rgba(255,255,255,0.25); }
+    .progress-bar {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 6px;
+      transition: width 0.2s;
+      width: 0%;
+    }
+    .progress-text {
+      font-size: 11px;
+      margin-top: 4px;
+      opacity: 0.7;
+    }
     .msg-time {
       font-size: 10px;
       opacity: 0.6;
@@ -404,6 +424,8 @@ const $roomInput = document.getElementById('roomInput');
 
 let toastTimer = null;
 let pendingFiles = [];
+let incomingFiles = {};
+const CHUNK_SIZE = 16 * 1024;
 
 // Generate a 6-char room code (uppercase letters + digits, no ambiguous chars)
 function genRoomCode() {
@@ -444,19 +466,21 @@ function addMessage(type, content, extra) {
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble';
 
-  if (extra && extra.fileType && extra.fileType.startsWith('image/')) {
+  const hasFile = extra && extra.fileType;
+
+  if (hasFile && extra.fileType.startsWith('image/') && !extra.progress) {
     const img = document.createElement('img');
     img.src = content;
     img.onclick = () => openPreview(content, 'image');
     bubble.appendChild(img);
-  } else if (extra && extra.fileType && extra.fileType.startsWith('video/')) {
+  } else if (hasFile && extra.fileType.startsWith('video/') && !extra.progress) {
     const vid = document.createElement('video');
     vid.src = content;
     vid.controls = true;
     vid.playsInline = true;
     vid.onclick = (e) => { e.stopPropagation(); vid.play(); };
     bubble.appendChild(vid);
-  } else if (extra && extra.fileType === 'file') {
+  } else if (hasFile && extra.fileType === 'file' && !extra.progress) {
     const card = document.createElement('div');
     card.className = 'file-card';
     card.onclick = () => { const a = document.createElement('a'); a.href = content; a.download = extra.fileName; a.click(); };
@@ -469,6 +493,11 @@ function addMessage(type, content, extra) {
     info.innerHTML = `<strong>${extra.fileName}</strong><br><span class="file-size">${extra.fileSize}</span>`;
     card.appendChild(info);
     bubble.appendChild(card);
+  } else if (hasFile && extra.fileId) {
+    bubble.innerHTML = `<div style="font-size:14px">${extra.fileType.startsWith('image/') ? '🖼' : extra.fileType.startsWith('video/') ? '🎬' : '📄'} ${extra.fileName}</div>
+      <div class="file-size" style="margin-top:2px">${extra.fileSize}</div>
+      <div class="progress-wrap"><div class="progress-bar" id="progress-bar-${extra.fileId}"></div></div>
+      <div class="progress-text" id="progress-text-${extra.fileId}">0%</div>`;
   } else {
     bubble.textContent = content;
   }
@@ -481,6 +510,7 @@ function addMessage(type, content, extra) {
   row.appendChild(time);
   $messages.appendChild(row);
   $messages.scrollTop = $messages.scrollHeight;
+  return row;
 }
 
 function addSystem(msg) {
@@ -583,13 +613,57 @@ function setupConnection(c) {
   });
 
   conn.on('data', (data) => {
-    if (typeof data === 'string') {
+    if (data instanceof ArrayBuffer) {
+      const header = new Uint8Array(data.slice(0, 16));
+      const fileId = new TextDecoder().decode(header.slice(0, 12)).trimEnd();
+      const index = (header[12] << 24) | (header[13] << 16) | (header[14] << 8) | header[15];
+      const chunkData = data.slice(16);
+      const f = incomingFiles[fileId];
+      if (f) {
+        f.chunks[index] = chunkData;
+        f.receivedBytes += chunkData.byteLength;
+        f.received++;
+        const pct = Math.round((f.received / f.total) * 100);
+        if (f.received === 1) {
+          addMessage('in', '', {
+            fileType: f.fileType,
+            fileName: f.fileName,
+            fileSize: formatSize(f.fileSize),
+            fileId
+          });
+        }
+        updateProgress(fileId, pct);
+      }
+    } else if (typeof data === 'string') {
       try {
         const parsed = JSON.parse(data);
         if (parsed.type === 'text') {
           addMessage('in', parsed.content);
-        } else if (parsed.type === 'file') {
-          addMessage('in', parsed.content, parsed);
+        } else if (parsed.type === 'file-start') {
+          incomingFiles[parsed.fileId] = {
+            chunks: new Array(parsed.totalChunks),
+            received: 0,
+            receivedBytes: 0,
+            total: parsed.totalChunks,
+            fileName: parsed.fileName,
+            fileType: parsed.fileType,
+            fileSize: parsed.fileSize
+          };
+        } else if (parsed.type === 'file-end') {
+          const f = incomingFiles[parsed.fileId];
+          if (f) {
+            const merged = new Uint8Array(f.fileSize);
+            let offset = 0;
+            for (let i = 0; i < f.chunks.length; i++) {
+              const chunk = new Uint8Array(f.chunks[i]);
+              merged.set(chunk, offset);
+              offset += chunk.byteLength;
+            }
+            const blob = new Blob([merged], { type: f.fileType });
+            const url = URL.createObjectURL(blob);
+            updateFileMessage(parsed.fileId, url, f);
+            delete incomingFiles[parsed.fileId];
+          }
         }
       } catch {
         addMessage('in', data);
@@ -631,19 +705,99 @@ function sendFile(file) {
     showToast('未连接', 'error');
     return;
   }
-  const reader = new FileReader();
-  reader.onload = () => {
-    const extra = {
-      fileName: file.name,
-      fileSize: formatSize(file.size),
-      fileType: file.type.startsWith('image/') ? file.type :
-                file.type.startsWith('video/') ? file.type : 'file'
-    };
-    send(JSON.stringify({ type: 'file', content: reader.result, ...extra }));
-    addMessage('out', reader.result, extra);
-    showToast('已发送', 'success');
-  };
-  reader.readAsDataURL(file);
+  const fileId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+  const fileType = file.type.startsWith('image/') ? file.type :
+                   file.type.startsWith('video/') ? file.type : 'file';
+
+  send(JSON.stringify({
+    type: 'file-start',
+    fileId, fileName: file.name, fileType, fileSize: file.size, totalChunks
+  }));
+
+  addMessage('out', '', {
+    fileType, fileName: file.name, fileSize: formatSize(file.size), fileId
+  });
+
+  const reader = file.stream().getReader();
+  let chunkIndex = 0;
+  let sent = 0;
+
+  function pump() {
+    reader.read().then(({ done, value }) => {
+      if (done) {
+        send(JSON.stringify({ type: 'file-end', fileId }));
+        return;
+      }
+      let offset = 0;
+      while (offset < value.byteLength) {
+        const raw = value.slice(offset, offset + CHUNK_SIZE);
+        offset += CHUNK_SIZE;
+        const header = buildChunkHeader(fileId, chunkIndex);
+        const packet = new Uint8Array(header.byteLength + raw.byteLength);
+        packet.set(new Uint8Array(header), 0);
+        packet.set(new Uint8Array(raw), header.byteLength);
+        conn.send(packet.buffer);
+        chunkIndex++;
+        sent += raw.byteLength;
+        updateProgress(fileId, Math.round((sent / file.size) * 100));
+      }
+      pump();
+    });
+  }
+  pump();
+}
+
+function buildChunkHeader(fileId, index) {
+  const idBytes = new TextEncoder().encode(fileId.padEnd(12, ' '));
+  const header = new Uint8Array(16);
+  header.set(idBytes, 0);
+  header[12] = (index >>> 24) & 0xff;
+  header[13] = (index >>> 16) & 0xff;
+  header[14] = (index >>> 8) & 0xff;
+  header[15] = index & 0xff;
+  return header.buffer;
+}
+
+function updateProgress(fileId, pct) {
+  const bar = document.getElementById('progress-bar-' + fileId);
+  const txt = document.getElementById('progress-text-' + fileId);
+  if (bar) bar.style.width = pct + '%';
+  if (txt) txt.textContent = pct + '%';
+}
+
+function updateFileMessage(fileId, url, f) {
+  const bar = document.getElementById('progress-bar-' + fileId);
+  if (!bar) return;
+  const bubble = bar.closest('.msg-bubble');
+  if (!bubble) return;
+  bubble.innerHTML = '';
+  if (f.fileType.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.onclick = () => openPreview(url, 'image');
+    bubble.appendChild(img);
+  } else if (f.fileType.startsWith('video/')) {
+    const vid = document.createElement('video');
+    vid.src = url;
+    vid.controls = true;
+    vid.playsInline = true;
+    vid.onclick = (e) => { e.stopPropagation(); vid.play(); };
+    bubble.appendChild(vid);
+  } else {
+    const card = document.createElement('div');
+    card.className = 'file-card';
+    card.onclick = () => { const a = document.createElement('a'); a.href = url; a.download = f.fileName; a.click(); };
+    const icon = document.createElement('span');
+    icon.className = 'file-icon';
+    icon.textContent = '📄';
+    card.appendChild(icon);
+    const info = document.createElement('div');
+    info.className = 'file-info';
+    info.innerHTML = `<strong>${f.fileName}</strong><br><span class="file-size">${formatSize(f.fileSize)}</span>`;
+    card.appendChild(info);
+    bubble.appendChild(card);
+  }
 }
 
 function formatSize(bytes) {
@@ -657,12 +811,6 @@ function onFilesSelected(e) {
   if (files.length === 0) return;
 
   const file = files[0];
-  if (file.size > 50 * 1024 * 1024) {
-    showToast('文件最大 50MB', 'error');
-    $fileInput.value = '';
-    return;
-  }
-
   pendingFiles = [file];
   $preview.style.display = 'flex';
 

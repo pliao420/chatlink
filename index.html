@@ -557,7 +557,7 @@ async function joinRoom() {
   showScreen('chat');
   addSystem('正在加入房间 ' + roomCode + '...');
 
-  await initPeer('chatlink-client-' + genRoomCode());
+  await initPeer('chatlink-client-' + Date.now().toString(36));
   setStatus('connecting', '正在连接...');
 
   conn = peer.connect('chatlink-' + roomCode, { reliable: true, serialization: 'binary' });

@@ -542,15 +542,17 @@ function connectRelay() {
     ws.send(JSON.stringify({ type: 'room-join', room: roomCode }));
   };
 
-  ws.onmessage = (e) => {
-    if (e.data instanceof ArrayBuffer) {
-      handleBinaryChunk(e.data);
-    } else if (typeof e.data === 'string') {
+  ws.onmessage = async (e) => {
+    let data = e.data;
+    if (data instanceof Blob) data = await data.arrayBuffer();
+    if (data instanceof ArrayBuffer) {
+      handleBinaryChunk(data);
+    } else if (typeof data === 'string') {
       try {
-        const msg = JSON.parse(e.data);
+        const msg = JSON.parse(data);
         handleWSMessage(msg);
       } catch {
-        addMessage('in', e.data);
+        addMessage('in', data);
       }
     }
   };

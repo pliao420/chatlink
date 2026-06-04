@@ -408,6 +408,7 @@ let ws = null;
 let roomCode = '';
 let isHost = false;
 let connected = false;
+let currentRelay = '';
 
 // DOM
 const $join = document.getElementById('joinScreen');
@@ -533,18 +534,21 @@ function sendPreviewFile() {
 }
 
 const RELAY_LIST = [
-  'wss://silent-silence-6ee2.296033863.workers.dev/ws',
-  'wss://ample-warthog-46.pliao420.deno.net/ws'
+  { url: 'wss://silent-silence-6ee2.296033863.workers.dev/ws', name: 'Cloudflare' },
+  { url: 'wss://ample-warthog-46.pliao420.deno.net/ws', name: 'Deno' }
 ];
 
 function connectRelay(tryIndex) {
-  const url = RELAY_LIST[tryIndex || 0];
-  addSystem('连接中转 ' + (tryIndex || 0 + 1) + '/' + RELAY_LIST.length);
-  ws = new WebSocket(url);
+  const idx = tryIndex || 0;
+  const relay = RELAY_LIST[idx];
+  addSystem('连接中转 ' + (idx + 1) + '/' + RELAY_LIST.length + ' (' + relay.name + ')');
+  ws = new WebSocket(relay.url);
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {
     console.log('[WS] 已连接');
+    currentRelay = relay.name;
+    setStatus('connecting', '已连接 ' + relay.name);
     ws.send(JSON.stringify({ type: 'room-join', room: roomCode }));
   };
 
@@ -594,7 +598,7 @@ function handleWSMessage(msg) {
     case 'peer-joined':
       connected = true;
       addSystem('对方已加入！可以开始聊天了');
-      setStatus('connected', '已连接');
+      setStatus('connected', '已连接 - ' + (currentRelay || ''));
       break;
     case 'peer-left':
       addSystem('对方已离开');

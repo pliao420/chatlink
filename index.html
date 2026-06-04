@@ -407,6 +407,7 @@
 let ws = null;
 let roomCode = '';
 let isHost = false;
+let connected = false;
 
 // DOM
 const $join = document.getElementById('joinScreen');
@@ -531,10 +532,15 @@ function sendPreviewFile() {
   closePreview();
 }
 
-const RELAY_WS = 'wss://silent-silence-6ee2.296033863.workers.dev/ws';
+const RELAY_LIST = [
+  'wss://silent-silence-6ee2.296033863.workers.dev/ws',
+  'wss://ample-warthog-46.pliao420.deno.net/ws'
+];
 
-function connectRelay() {
-  ws = new WebSocket(RELAY_WS);
+function connectRelay(tryIndex) {
+  const url = RELAY_LIST[tryIndex || 0];
+  addSystem('连接中转 ' + (tryIndex || 0 + 1) + '/' + RELAY_LIST.length);
+  ws = new WebSocket(url);
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {
@@ -557,16 +563,22 @@ function connectRelay() {
     }
   };
 
+  connected = false;
+  let tried = tryIndex || 0;
+
   ws.onclose = () => {
     console.log('[WS] 断开');
-    if (roomCode) addSystem('与服务器断开连接');
-    setStatus('disconnected', '断开');
     ws = null;
+    if (!connected && tried < RELAY_LIST.length - 1) {
+      connectRelay(tried + 1);
+      return;
+    }
+    if (roomCode) addSystem('与服务器断开连接');
+    setStatus('disconnected', connected ? '断开' : '错误');
   };
 
   ws.onerror = () => {
-    addSystem('无法连接服务器');
-    setStatus('disconnected', '错误');
+    // onclose will handle retry
   };
 }
 
@@ -580,6 +592,7 @@ function handleWSMessage(msg) {
       setStatus('disconnected', '满员');
       break;
     case 'peer-joined':
+      connected = true;
       addSystem('对方已加入！可以开始聊天了');
       setStatus('connected', '已连接');
       break;

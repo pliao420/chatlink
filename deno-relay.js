@@ -1,5 +1,12 @@
 const rooms = {};
 
+const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript",
+  ".json": "application/json",
+  ".svg": "image/svg+xml"
+};
+
 function relay(room, senderId, data) {
   if (!room || !rooms[room]) return;
   const peer = rooms[room].find(c => c.id !== senderId);
@@ -8,19 +15,15 @@ function relay(room, senderId, data) {
   }
 }
 
-Deno.serve((req) => {
+Deno.serve(async (req) => {
   if (req.headers.get("upgrade") === "websocket") {
     const { socket, response } = Deno.upgradeWebSocket(req);
     let room = null;
     const cid = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
-    socket.addEventListener("open", () => console.log("[open]", cid));
-
     socket.addEventListener("message", (e) => {
       const data = e.data;
-      const isBinary = data instanceof ArrayBuffer;
-
-      if (isBinary) {
+      if (data instanceof ArrayBuffer) {
         relay(room, cid, data);
         return;
       }
@@ -60,10 +63,21 @@ Deno.serve((req) => {
       }
     });
 
-    socket.addEventListener("error", () => {});
-
     return response;
   }
 
-  return new Response("ChatLink Relay", { status: 200 });
+  // Serve static files
+  const url = new URL(req.url);
+  let filePath = url.pathname === "/" ? "/index.html" : url.pathname;
+  try {
+    const ext = filePath.slice(filePath.lastIndexOf("."));
+    const mime = MIME[ext] || "text/plain";
+    const content = ext === ".json" || ext === ".html" || ext === ".js"
+      ? await Deno.readTextFile("." + filePath)
+      : await Deno.readFile("." + filePath);
+    return new Response(content, { headers: { "content-type": mime } });
+  } catch {
+    const html = await Deno.readTextFile("./index.html");
+    return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
+  }
 });

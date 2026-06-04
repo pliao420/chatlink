@@ -763,34 +763,39 @@ function updateProgress(fileId, pct) {
 
 function updateFileMessage(fileId, url, f) {
   const bar = document.getElementById('progress-bar-' + fileId);
-  if (!bar) return;
+  if (!bar) {
+    addSystem('进度条元素未找到，重新渲染');
+    addMessage('in', url, {
+      fileType: f.fileType.startsWith('image/') ? f.fileType :
+                f.fileType.startsWith('video/') ? f.fileType : 'file',
+      fileName: f.fileName,
+      fileSize: formatSize(f.fileSize)
+    });
+    return;
+  }
   const bubble = bar.closest('.msg-bubble');
-  if (!bubble) return;
+  if (!bubble) {
+    addSystem('气泡元素未找到');
+    return;
+  }
   bubble.innerHTML = '';
   if (f.fileType.startsWith('image/')) {
     const img = document.createElement('img');
     img.src = url;
     img.onclick = () => openPreview(url, 'image');
+    img.onerror = () => { bubble.textContent = '图片加载失败'; };
     bubble.appendChild(img);
   } else if (f.fileType.startsWith('video/')) {
     const vid = document.createElement('video');
     vid.src = url;
     vid.controls = true;
     vid.playsInline = true;
-    vid.onclick = (e) => { e.stopPropagation(); vid.play(); };
     bubble.appendChild(vid);
   } else {
     const card = document.createElement('div');
     card.className = 'file-card';
     card.onclick = () => { const a = document.createElement('a'); a.href = url; a.download = f.fileName; a.click(); };
-    const icon = document.createElement('span');
-    icon.className = 'file-icon';
-    icon.textContent = '📄';
-    card.appendChild(icon);
-    const info = document.createElement('div');
-    info.className = 'file-info';
-    info.innerHTML = `<strong>${f.fileName}</strong><br><span class="file-size">${formatSize(f.fileSize)}</span>`;
-    card.appendChild(info);
+    card.innerHTML = '<span class="file-icon">📄</span><div class="file-info"><strong>' + f.fileName + '</strong><br><span class="file-size">' + formatSize(f.fileSize) + '</span></div>';
     bubble.appendChild(card);
   }
 }

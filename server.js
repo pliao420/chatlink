@@ -68,6 +68,7 @@ wss.on('connection', (ws) => {
 
         if (ROOMS[code].length === 2) {
           relay(room, cid, JSON.stringify({ type: 'peer-joined' }));
+          ws.send(JSON.stringify({ type: 'peer-joined' }));
         }
         return;
       }

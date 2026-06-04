@@ -452,6 +452,7 @@ let roomCode = '';
 let isHost = false;
 let connected = false;
 let displayName = '';
+let displayEmoji = '';
 
 const ANIMALS = [
   { name: '小狗', emoji: '🐶' }, { name: '小猫', emoji: '🐱' }, { name: '小兔', emoji: '🐰' },
@@ -650,7 +651,8 @@ function handleWSMessage(msg) {
       setStatus('disconnected', '对方离开');
       break;
     case 'text':
-      addMessage('in', msg.content, msg.name ? { name: msg.name } : null);
+      const label = msg.name ? (msg.emoji || '') + ' ' + msg.name : null;
+      addMessage('in', msg.content, label ? { name: label } : null);
       break;
     case 'file-start':
       addSystem('收到文件: ' + msg.fileName + ' ' + formatSize(msg.fileSize) + ' (' + msg.totalChunks + '片)');
@@ -687,7 +689,10 @@ function handleWSMessage(msg) {
     case 'history':
       addSystem('加载历史消息 (' + msg.messages.length + '条)');
       msg.messages.forEach(m => {
-        if (m.type === 'text') addMessage('in', m.content);
+        if (m.type === 'text') {
+          const hlabel = m.name ? (m.emoji || '') + ' ' + m.name : null;
+          addMessage('in', m.content, hlabel ? { name: hlabel } : null);
+        }
         if (m.type === 'file-ready') addReceivedFile(m.fileId, m.fileName, m.fileType, m.fileSize, m.url);
       });
       break;
@@ -777,22 +782,23 @@ function openTestRoom() {
   const picked = pickRandom(ANIMALS, 3);
   const container = document.getElementById('pickerBtns');
   container.innerHTML = picked.map(a =>
-    '<button class="picker-btn" onclick="enterTestRoom(\'' + a.name + '\')">' +
+    '<button class="picker-btn" onclick="enterTestRoom(\'' + a.name + '\',\'' + a.emoji + '\')">' +
     '<span class="animal-emoji">' + a.emoji + '</span>' +
     '<span class="animal-name">' + a.name + '</span></button>'
   ).join('');
   document.getElementById('pickerOverlay').style.display = 'flex';
 }
 
-function enterTestRoom(name) {
+function enterTestRoom(name, emoji) {
   displayName = name;
+  displayEmoji = emoji;
   document.getElementById('pickerOverlay').style.display = 'none';
   roomCode = 'TESTRM';
   isHost = false;
   showScreen('chat');
   $roomBadge.textContent = '测试房';
   setStatus('connecting', '连接中...');
-  addSystem('你选择了 ' + name + '，进入测试房间');
+  addSystem(emoji + ' ' + name + '，进入测试房间');
   connectRelay();
 }
 
@@ -836,9 +842,9 @@ function sendText() {
   const text = $msgInput.value.trim();
   if (!text) return;
   const msg = { type: 'text', content: text };
-  if (displayName) msg.name = displayName;
+  if (displayName) { msg.name = displayName; msg.emoji = displayEmoji; }
   send(JSON.stringify(msg));
-  addMessage('out', text);
+  addMessage('out', text, displayName ? { name: displayEmoji + ' ' + displayName } : null);
   $msgInput.value = '';
   $sendBtn.disabled = true;
   $msgInput.style.height = 'auto';
@@ -1015,6 +1021,7 @@ function leaveRoom() {
   roomCode = '';
   isHost = false;
   displayName = '';
+  displayEmoji = '';
   $messages.innerHTML = '<div class="empty-chat" id="emptyState"><span class="icon">💬</span><span>等待对方加入...</span><span style="font-size:13px">分享房间号给对方</span></div>';
   showScreen('join');
 }

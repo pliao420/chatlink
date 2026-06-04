@@ -531,9 +531,10 @@ function sendPreviewFile() {
   closePreview();
 }
 
+const RELAY_WS = 'wss://ample-warthog-46.pliao420.deno.net/ws';
+
 function connectRelay() {
-  const relayUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
-  ws = new WebSocket(relayUrl);
+  ws = new WebSocket(RELAY_WS);
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {

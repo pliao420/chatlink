@@ -88,6 +88,18 @@
     }
     .relay-dot.ok { background: #4caf50; }
     .relay-dot.err { background: #e74c3c; }
+    .relay-stats {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 16px;
+      font-size: 11px;
+      color: #999;
+      flex-wrap: wrap;
+    }
+    .relay-stats span { white-space: nowrap; }
+    .relay-stats .green { color: #4caf50; }
+    .relay-stats .red { color: #e74c3c; }
     .join-card label {
       display: block;
       text-align: left;
@@ -383,10 +395,11 @@
     <p class="subtitle">输入房间号，即时连接</p>
     <label>房间号</label>
     <input type="text" id="roomInput" maxlength="6" placeholder="输入6位房间号" autocomplete="off">
-    <div class="relay-status" id="relayStatus">
+    <div class="relay-status" id="relayStatus" onclick="probeRelays()">
       <span class="relay-dot" id="relayDot"></span>
       <span id="relayText">检测中继...</span>
     </div>
+    <div class="relay-stats" id="relayStats"></div>
     <button class="btn btn-primary" onclick="joinRoom()">加入房间</button>
     <div class="divider"><span>或</span></div>
     <button class="btn btn-outline" onclick="createRoom()">创建新房间</button>
@@ -563,11 +576,13 @@ function connectRelay(tryIndex) {
   const idx = tryIndex || 0;
   const relay = RELAY_LIST[idx];
   addSystem('连接中转 ' + (idx + 1) + '/' + RELAY_LIST.length + ' (' + relay.name + ')');
+  const t0 = performance.now();
   ws = new WebSocket(relay.url);
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {
     console.log('[WS] 已连接');
+    recordRelay(relay.name, true, Math.round(performance.now() - t0));
     currentRelay = relay.name;
     setStatus('connecting', '已连接 ' + relay.name);
     ws.send(JSON.stringify({ type: 'room-join', room: roomCode }));
@@ -595,9 +610,11 @@ function connectRelay(tryIndex) {
     console.log('[WS] 断开');
     ws = null;
     if (!connected && tried < RELAY_LIST.length - 1) {
+      recordRelay(relay.name, false);
       connectRelay(tried + 1);
       return;
     }
+    if (!connected) recordRelay(relay.name, false);
     if (roomCode) addSystem('与服务器断开连接');
     setStatus('disconnected', connected ? '断开' : '错误');
   };
@@ -909,6 +926,40 @@ function leaveRoom() {
 let relayReady = false;
 let relayReadyIndex = -1;
 
+const STATS_KEY = 'chatlink_relay_stats';
+function loadStats() {
+  try { return JSON.parse(localStorage.getItem(STATS_KEY)) || {}; }
+  catch { return {}; }
+}
+function saveStats(s) { try { localStorage.setItem(STATS_KEY, JSON.stringify(s)); } catch {} }
+
+function recordRelay(name, ok, ms) {
+  const s = loadStats();
+  const r = s[name] || { ok: 0, fail: 0, totalMs: 0, count: 0 };
+  if (ok) { r.ok++; } else { r.fail++; }
+  if (ms != null) { r.totalMs += ms; r.count++; }
+  s[name] = r;
+  saveStats(s);
+  renderStats(s);
+}
+
+function relayLine(name, r) {
+  const total = r.ok + r.fail;
+  if (!total) return '<span>' + name + ' 无记录</span>';
+  const pct = Math.round(r.ok / total * 100);
+  const cls = pct >= 80 ? 'green' : pct >= 50 ? '' : 'red';
+  let line = '<span class="' + cls + '">' + name + ' ';
+  if (r.count) line += Math.round(r.totalMs / r.count) + 'ms ';
+  line += r.ok + '/' + total + ' (' + pct + '%)</span>';
+  return line;
+}
+
+function renderStats(s) {
+  s = s || loadStats();
+  let html = RELAY_LIST.map(r => relayLine(r.name, s[r.name] || { ok: 0, fail: 0 })).join('');
+  $relayStats.innerHTML = html;
+}
+
 async function probeRelay(idx) {
   if (idx >= RELAY_LIST.length) {
     $relayDot.className = 'relay-dot err';
@@ -917,13 +968,16 @@ async function probeRelay(idx) {
   }
   const relay = RELAY_LIST[idx];
   $relayText.textContent = '检测 ' + relay.name + '...';
+  const t0 = performance.now();
   const ws = new WebSocket(relay.url);
   return new Promise((resolve) => {
     const done = (ok) => {
+      const ms = ok ? Math.round(performance.now() - t0) : null;
+      recordRelay(relay.name, ok, ms);
       ws.close();
       if (ok) {
         $relayDot.className = 'relay-dot ok';
-        $relayText.textContent = relay.name + ' 可用';
+        $relayText.textContent = relay.name + ' 可用' + (ms ? ' (' + ms + 'ms)' : '');
         relayReady = true;
         relayReadyIndex = idx;
         resolve();
@@ -942,11 +996,13 @@ function probeRelays() {
   relayReadyIndex = -1;
   $relayDot.className = 'relay-dot';
   $relayText.textContent = '检测中继...';
+  renderStats(loadStats());
   probeRelay(0);
 }
 
 const $relayDot = document.getElementById('relayDot');
 const $relayText = document.getElementById('relayText');
+const $relayStats = document.getElementById('relayStats');
 probeRelays();
 
 window.addEventListener('beforeunload', () => {

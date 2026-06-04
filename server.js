@@ -233,20 +233,12 @@ wss.on('connection', (ws) => {
   const cid = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   ws.on('message', (data) => {
-    const kind = Buffer.isBuffer(data) ? 'buffer' : typeof data;
-    const len = Buffer.isBuffer(data) ? data.length : typeof data === 'string' ? data.length : data.byteLength || 0;
-    console.log('[msg] room=' + room + ' kind=' + kind + ' len=' + len);
-    const isBinary = Buffer.isBuffer(data) || data instanceof ArrayBuffer;
     const raw = Buffer.isBuffer(data) ? data : Buffer.from(data);
 
-    if (isBinary) {
-      relay(room, cid, raw);
-      const fileId = bufferChunk(raw);
-      return;
-    }
-
+    // Try JSON first — text messages may arrive as Buffers
     try {
       const msg = JSON.parse(raw.toString());
+      console.log('[msg] room=' + room + ' type=' + msg.type);
 
       if (msg.type === 'file-start') {
         chunks[msg.fileId] = {
@@ -303,8 +295,11 @@ wss.on('connection', (ws) => {
       // text and other messages: relay + save
       relay(room, cid, raw);
       if (msg.type === 'text') saveMessage(room, msg);
+      return;
     } catch {
+      // Not JSON — binary chunk
       relay(room, cid, raw);
+      bufferChunk(raw);
     }
   });
 

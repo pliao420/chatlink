@@ -384,8 +384,39 @@
 
     /* Name label on messages */
     .msg-name {
-      font-size: 11px; color: var(--primary); font-weight: 600;
+      font-size: 11px; font-weight: 600;
       margin-bottom: 2px; padding-left: 4px;
+    }
+    .msg-name.self { color: #4caf50; }
+    .msg-name.other { color: #e74c3c; }
+
+    /* Rating */
+    .rate-btn {
+      font-size: 11px; color: var(--primary); cursor: pointer;
+      margin-left: 8px; white-space: nowrap; user-select: none;
+    }
+    .rate-score {
+      font-size: 11px; color: #f39c12; font-weight: 600;
+      background: #fff3cd; padding: 2px 8px; border-radius: 10px;
+      white-space: nowrap;
+    }
+    .rate-popup {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: #fff; border-radius: 20px 20px 0 0;
+      padding: 20px; z-index: 400; box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .rate-popup h4 { text-align: center; font-size: 15px; color: #333; }
+    .rate-stars { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+    .rate-star {
+      width: 40px; height: 40px; border-radius: 50%; border: 2px solid #ddd;
+      background: #fafafa; font-size: 16px; font-weight: 700; cursor: pointer;
+      color: #666; transition: all 0.15s;
+    }
+    .rate-star:hover { border-color: #f39c12; background: #fff3cd; }
+    .rate-star.sel { border-color: #f39c12; background: #f39c12; color: #fff; }
+    .rate-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 399;
     }
   </style>
 </head>
@@ -454,6 +485,13 @@ let connected = false;
 let displayName = '';
 let displayEmoji = '';
 
+// Persistent device ID
+let deviceId = localStorage.getItem('chatlink_did');
+if (!deviceId) {
+  deviceId = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  localStorage.setItem('chatlink_did', deviceId);
+}
+
 const ANIMALS = [
   { name: '小狗', emoji: '🐶' }, { name: '小猫', emoji: '🐱' }, { name: '小兔', emoji: '🐰' },
   { name: '小熊', emoji: '🐻' }, { name: '小猪', emoji: '🐷' }, { name: '小鹿', emoji: '🦌' },
@@ -481,6 +519,46 @@ let toastTimer = null;
 let pendingFiles = [];
 let incomingFiles = {};
 const CHUNK_SIZE = 16 * 1024;
+const fileRatings = {};
+
+function showRatePopup(fileId) {
+  document.querySelectorAll('.rate-overlay,.rate-popup').forEach(el => el.remove());
+  const overlay = document.createElement('div');
+  overlay.className = 'rate-overlay';
+  overlay.onclick = () => { overlay.remove(); popup.remove(); };
+  const popup = document.createElement('div');
+  popup.className = 'rate-popup';
+  popup.innerHTML = '<h4>评分 (0-10)</h4><div class="rate-stars"></div>';
+  const stars = popup.querySelector('.rate-stars');
+  for (let i = 0; i <= 10; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'rate-star';
+    btn.textContent = i;
+    btn.onclick = () => {
+      fileRatings[fileId] = i;
+      send(JSON.stringify({ type: 'file-rate', fileId, score: i, did: deviceId }));
+      updateRateDisplay(fileId, i);
+      overlay.remove(); popup.remove();
+    };
+    stars.appendChild(btn);
+  }
+  document.body.appendChild(overlay);
+  document.body.appendChild(popup);
+}
+
+function updateRateDisplay(fileId, score) {
+  const el = document.getElementById('rate-' + fileId);
+  if (el) {
+    el.innerHTML = '<span class="rate-score">★' + score + '</span>';
+  }
+}
+
+function rateEl(fileId) {
+  if (fileRatings[fileId] != null) {
+    return '<span class="rate-score" id="rate-' + fileId + '">★' + fileRatings[fileId] + '</span>';
+  }
+  return '<span class="rate-btn" id="rate-' + fileId + '" onclick="event.stopPropagation();showRatePopup(\'' + fileId + '\')">评分</span>';
+}
 
 function showScreen(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -515,18 +593,32 @@ function addMessage(type, content, extra) {
 
   const hasFile = extra && extra.fileType;
 
-  if (hasFile && extra.fileType.startsWith('image/') && !extra.progress) {
+  if (hasFile && extra.fileType.startsWith('image/') && !extra.progress && !extra.fileId) {
     const img = document.createElement('img');
     img.src = content;
     img.onclick = () => openPreview(content, 'image');
     bubble.appendChild(img);
-  } else if (hasFile && extra.fileType.startsWith('video/') && !extra.progress) {
+  } else if (hasFile && extra.fileType.startsWith('image/') && !extra.progress && extra.fileId) {
+    const img = document.createElement('img');
+    img.src = content;
+    img.onclick = () => openPreview(content, 'image');
+    bubble.appendChild(img);
+    bubble.innerHTML += '<div style="margin-top:4px">' + rateEl(extra.fileId) + '</div>';
+  } else if (hasFile && extra.fileType.startsWith('video/') && !extra.progress && !extra.fileId) {
     const vid = document.createElement('video');
     vid.src = content;
     vid.controls = true;
     vid.playsInline = true;
     vid.onclick = (e) => { e.stopPropagation(); vid.play(); };
     bubble.appendChild(vid);
+  } else if (hasFile && extra.fileType.startsWith('video/') && !extra.progress && extra.fileId) {
+    const vid = document.createElement('video');
+    vid.src = content;
+    vid.controls = true;
+    vid.playsInline = true;
+    vid.onclick = (e) => { e.stopPropagation(); vid.play(); };
+    bubble.appendChild(vid);
+    bubble.innerHTML += '<div style="margin-top:4px">' + rateEl(extra.fileId) + '</div>';
   } else if (hasFile && extra.fileType === 'file' && !extra.progress) {
     const card = document.createElement('div');
     card.className = 'file-card';
@@ -540,6 +632,7 @@ function addMessage(type, content, extra) {
     info.innerHTML = `<strong>${extra.fileName}</strong><br><span class="file-size">${extra.fileSize}</span>`;
     card.appendChild(info);
     bubble.appendChild(card);
+    if (extra.fileId) bubble.innerHTML += '<div style="margin-top:4px">' + rateEl(extra.fileId) + '</div>';
   } else if (hasFile && extra.fileId) {
     bubble.innerHTML = `<div style="font-size:14px">${extra.fileType.startsWith('image/') ? '🖼' : extra.fileType.startsWith('video/') ? '🎬' : '📄'} ${extra.fileName}</div>
       <div class="file-size" style="margin-top:2px">${extra.fileSize}</div>
@@ -551,7 +644,8 @@ function addMessage(type, content, extra) {
 
   if (extra && extra.name) {
     const nl = document.createElement('div');
-    nl.className = 'msg-name';
+    const isSelf = extra.did === deviceId;
+    nl.className = 'msg-name ' + (isSelf ? 'self' : 'other');
     nl.textContent = extra.name;
     row.appendChild(nl);
   }
@@ -652,7 +746,7 @@ function handleWSMessage(msg) {
       break;
     case 'text':
       const label = msg.name ? (msg.emoji || '') + ' ' + msg.name : null;
-      addMessage('in', msg.content, label ? { name: label } : null);
+      addMessage('in', msg.content, label ? { name: label, did: msg.did } : null);
       break;
     case 'file-start':
       addSystem('收到文件: ' + msg.fileName + ' ' + formatSize(msg.fileSize) + ' (' + msg.totalChunks + '片)');
@@ -686,50 +780,70 @@ function handleWSMessage(msg) {
     case 'file-ready':
       addReceivedFile(msg.fileId, msg.fileName, msg.fileType, msg.fileSize, msg.url);
       break;
+    case 'file-rate':
+      fileRatings[msg.fileId] = msg.score;
+      updateRateDisplay(msg.fileId, msg.score);
+      break;
     case 'history':
       addSystem('加载历史消息 (' + msg.messages.length + '条)');
       msg.messages.forEach(m => {
         if (m.type === 'text') {
           const hlabel = m.name ? (m.emoji || '') + ' ' + m.name : null;
-          addMessage('in', m.content, hlabel ? { name: hlabel } : null);
+          addMessage('in', m.content, hlabel ? { name: hlabel, did: m.did } : null);
         }
         if (m.type === 'file-ready') addReceivedFile(m.fileId, m.fileName, m.fileType, m.fileSize, m.url);
+        if (m.type === 'file-rate') { fileRatings[m.fileId] = m.score; updateRateDisplay(m.fileId, m.score); }
       });
       break;
   }
 }
 
 function addReceivedFile(fileId, fileName, fileType, fileSize, url) {
-  // Remove progress bar message if exists
   const pb = document.getElementById('progress-bar-' + fileId);
   if (pb) pb.parentElement.parentElement.parentElement.remove();
-  // Add file card
+  const src = SERVER + url;
+
+  function addRateDiv(bubble) {
+    const div = document.createElement('div');
+    div.style.marginTop = '4px';
+    div.innerHTML = rateEl(fileId);
+    bubble.appendChild(div);
+  }
+
   if (fileType.startsWith('image/')) {
-    const img = document.createElement('img');
-    img.src = SERVER + url;
-    img.onclick = () => openPreview(SERVER + url, 'image');
     addMessage('in', '', { fileType, fileName, fileSize, fileId });
     const bubbles = $messages.querySelectorAll('.msg-row.in .msg-bubble');
     const last = bubbles[bubbles.length - 1];
-    if (last) { last.innerHTML = ''; last.appendChild(img); }
+    if (last) {
+      last.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = src;
+      img.onclick = () => openPreview(src, 'image');
+      last.appendChild(img);
+      addRateDiv(last);
+    }
   } else if (fileType.startsWith('video/')) {
-    const vid = document.createElement('video');
-    vid.src = SERVER + url;
-    vid.controls = true;
-    vid.playsInline = true;
     addMessage('in', '', { fileType, fileName, fileSize, fileId });
     const bubbles = $messages.querySelectorAll('.msg-row.in .msg-bubble');
     const last = bubbles[bubbles.length - 1];
-    if (last) { last.innerHTML = ''; last.appendChild(vid); }
+    if (last) {
+      last.innerHTML = '';
+      const vid = document.createElement('video');
+      vid.src = src;
+      vid.controls = true;
+      vid.playsInline = true;
+      last.appendChild(vid);
+      addRateDiv(last);
+    }
   } else {
-    addMessage('in', '', { fileType: 'file', fileName, fileSize });
+    addMessage('in', '', { fileType: 'file', fileName, fileSize, fileId });
     const bubbles = $messages.querySelectorAll('.msg-row.in .msg-bubble');
     const last = bubbles[bubbles.length - 1];
     if (last) {
       last.innerHTML = '';
       const card = document.createElement('div');
       card.className = 'file-card';
-      card.onclick = () => { const a = document.createElement('a'); a.href = SERVER + url; a.download = fileName; a.click(); };
+      card.onclick = () => { const a = document.createElement('a'); a.href = src; a.download = fileName; a.click(); };
       const icon = document.createElement('span');
       icon.className = 'file-icon';
       icon.textContent = '📄';
@@ -739,6 +853,7 @@ function addReceivedFile(fileId, fileName, fileType, fileSize, url) {
       info.innerHTML = '<strong>' + fileName + '</strong><br><span class="file-size">' + formatSize(fileSize) + '</span>';
       card.appendChild(info);
       last.appendChild(card);
+      addRateDiv(last);
     }
   }
 }
@@ -841,10 +956,10 @@ function send(data) {
 function sendText() {
   const text = $msgInput.value.trim();
   if (!text) return;
-  const msg = { type: 'text', content: text };
+  const msg = { type: 'text', content: text, did: deviceId };
   if (displayName) { msg.name = displayName; msg.emoji = displayEmoji; }
   send(JSON.stringify(msg));
-  addMessage('out', text, displayName ? { name: displayEmoji + ' ' + displayName } : null);
+  addMessage('out', text, displayName ? { name: displayEmoji + ' ' + displayName, did: deviceId } : null);
   $msgInput.value = '';
   $sendBtn.disabled = true;
   $msgInput.style.height = 'auto';

@@ -293,9 +293,10 @@ wss.on('connection', (ws) => {
         return;
       }
 
-      // text and other messages: relay + save
-      relay(room, cid, raw);
+      // text, file-rate, and other messages: relay + save
+      relay(room, cid, raw.toString());
       if (msg.type === 'text') saveMessage(room, msg);
+      if (msg.type === 'file-rate') saveMessage(room, msg);
       return;
     } catch {
       // Not JSON — binary chunk

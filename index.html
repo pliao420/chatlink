@@ -402,11 +402,9 @@
 <div class="toast" id="toast"></div>
 <div class="preview-overlay" id="previewOverlay" style="display:none"></div>
 
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <script>
 // State
-let peer = null;
-let conn = null;
+let ws = null;
 let roomCode = '';
 let isHost = false;
 
@@ -533,6 +531,114 @@ function sendPreviewFile() {
   closePreview();
 }
 
+const RELAY = 'chatlink-relay.deno.dev';
+function connectRelay() {
+  const relayUrl = location.hostname === 'localhost' ? 'ws://localhost:8080/ws' : 'wss://' + RELAY + '/ws';
+  ws = new WebSocket(relayUrl);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    console.log('[WS] 已连接');
+    ws.send(JSON.stringify({ type: 'room-join', room: roomCode }));
+  };
+
+  ws.onmessage = (e) => {
+    if (e.data instanceof ArrayBuffer) {
+      handleBinaryChunk(e.data);
+    } else if (typeof e.data === 'string') {
+      try {
+        const msg = JSON.parse(e.data);
+        handleWSMessage(msg);
+      } catch {
+        addMessage('in', e.data);
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    console.log('[WS] 断开');
+    if (roomCode) addSystem('与服务器断开连接');
+    setStatus('disconnected', '断开');
+    ws = null;
+  };
+
+  ws.onerror = () => {
+    addSystem('无法连接服务器');
+    setStatus('disconnected', '错误');
+  };
+}
+
+function handleWSMessage(msg) {
+  switch (msg.type) {
+    case 'room-joined':
+      addSystem(isHost ? '房间已创建，等待对方...' : '已加入房间，等待对方...');
+      break;
+    case 'room-full':
+      addSystem('房间已满');
+      setStatus('disconnected', '满员');
+      break;
+    case 'peer-joined':
+      addSystem('对方已加入！可以开始聊天了');
+      setStatus('connected', '已连接');
+      break;
+    case 'peer-left':
+      addSystem('对方已离开');
+      setStatus('disconnected', '对方离开');
+      break;
+    case 'text':
+      addMessage('in', msg.content);
+      break;
+    case 'file-start':
+      incomingFiles[msg.fileId] = {
+        chunks: new Array(msg.totalChunks),
+        received: 0,
+        total: msg.totalChunks,
+        fileName: msg.fileName,
+        fileType: msg.fileType,
+        fileSize: msg.fileSize
+      };
+      break;
+    case 'file-end':
+      const f = incomingFiles[msg.fileId];
+      if (f) {
+        const merged = new Uint8Array(f.fileSize);
+        let offset = 0;
+        for (let i = 0; i < f.chunks.length; i++) {
+          const chunk = new Uint8Array(f.chunks[i]);
+          merged.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        const blob = new Blob([merged], { type: f.fileType });
+        const url = URL.createObjectURL(blob);
+        updateFileMessage(msg.fileId, url, f);
+        delete incomingFiles[msg.fileId];
+      }
+      break;
+  }
+}
+
+function handleBinaryChunk(data) {
+  const header = new Uint8Array(data.slice(0, 16));
+  const fileId = new TextDecoder().decode(header.slice(0, 12)).trimEnd();
+  const index = (header[12] << 24) | (header[13] << 16) | (header[14] << 8) | header[15];
+  const chunkData = data.slice(16);
+  const f = incomingFiles[fileId];
+  if (f) {
+    f.chunks[index] = chunkData;
+    f.received++;
+    const pct = Math.round((f.received / f.total) * 100);
+    if (f.received === 1) {
+      addMessage('in', '', {
+        fileType: f.fileType,
+        fileName: f.fileName,
+        fileSize: formatSize(f.fileSize),
+        fileId
+      });
+    }
+    updateProgress(fileId, pct);
+  }
+}
+
 async function createRoom() {
   const input = $roomInput.value.trim().toUpperCase();
   if (input.length !== 6 || !/^[A-Z0-9]+$/.test(input)) {
@@ -541,11 +647,10 @@ async function createRoom() {
   }
   roomCode = input;
   isHost = true;
-  await initPeer('chatlink-' + roomCode);
   showScreen('chat');
   $roomBadge.textContent = roomCode;
-  addSystem('等待对方加入... 房间号: ' + roomCode);
-  setStatus('connecting', '等待连接...');
+  setStatus('connecting', '连接服务器...');
+  connectRelay();
 }
 
 async function joinRoom() {
@@ -558,176 +663,16 @@ async function joinRoom() {
   isHost = false;
   $roomBadge.textContent = roomCode;
   showScreen('chat');
-  addSystem('正在加入房间 ' + roomCode + '...');
-
-  await initPeer('chatlink-client-' + Date.now().toString(36));
-  setStatus('connecting', '正在连接...');
-
-  console.log('[Join] 发起连接, 目标:', 'chatlink-' + roomCode);
-  conn = peer.connect('chatlink-' + roomCode, { reliable: true, serialization: 'binary' });
-  setupConnection(conn);
-
-  setTimeout(() => {
-    if (conn && !conn.open) {
-      addSystem('连接超时，请确认对方已创建房间且房间号正确');
-      setStatus('disconnected', '超时');
-    }
-  }, 30000);
-}
-
-function initPeer(id) {
-  return new Promise((resolve, reject) => {
-    peer = new Peer(id, {
-      host: '0.peerjs.com',
-      port: 443,
-      secure: true,
-      debug: 3,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          {
-            urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          },
-          {
-            urls: 'turn:freestun.net:3478',
-            username: 'free',
-            credential: 'free'
-          }
-        ],
-        iceCandidatePoolSize: 2
-      }
-    });
-
-    peer.on('open', (pid) => {
-      console.log('[Peer] 信令已连接, ID:', pid);
-      addSystem('信令服务器已连接');
-      resolve();
-    });
-
-    peer.on('error', (err) => {
-      console.error('[Peer] 错误:', err.type, err.message);
-      addSystem('信令错误: ' + (err.message || err.type));
-      showToast('连接失败: ' + (err.message || err.type), 'error');
-      reject(err);
-    });
-
-    peer.on('connection', (incoming) => {
-      console.log('[Peer] 收到连接请求, peer:', incoming.peer);
-      addSystem('检测到对方加入...');
-      if (isHost) {
-        if (conn) { conn.close(); }
-        conn = incoming;
-        setupConnection(conn);
-      }
-    });
-
-    peer.on('disconnected', () => {
-      console.log('[Peer] 信令断开');
-      addSystem('信令服务器断开，尝试重连...');
-      if (peer && !peer.destroyed) peer.reconnect();
-    });
-  });
-}
-
-function setupConnection(c) {
-  conn = c;
-  console.log('[Conn] 初始化连接, peer:', c.peer);
-
-  conn.on('open', () => {
-    console.log('[Conn] 数据通道已打开');
-    addSystem('已连接！可以开始聊天了');
-    setStatus('connected', '已连接');
-  });
-
-  conn.on('data', (data) => {
-    if (data instanceof ArrayBuffer) {
-      const header = new Uint8Array(data.slice(0, 16));
-      const fileId = new TextDecoder().decode(header.slice(0, 12)).trimEnd();
-      const index = (header[12] << 24) | (header[13] << 16) | (header[14] << 8) | header[15];
-      const chunkData = data.slice(16);
-      const f = incomingFiles[fileId];
-      if (f) {
-        f.chunks[index] = chunkData;
-        f.receivedBytes += chunkData.byteLength;
-        f.received++;
-        const pct = Math.round((f.received / f.total) * 100);
-        if (f.received === 1) {
-          addMessage('in', '', {
-            fileType: f.fileType,
-            fileName: f.fileName,
-            fileSize: formatSize(f.fileSize),
-            fileId
-          });
-        }
-        updateProgress(fileId, pct);
-      }
-    } else if (typeof data === 'string') {
-      try {
-        const parsed = JSON.parse(data);
-        if (parsed.type === 'text') {
-          addMessage('in', parsed.content);
-        } else if (parsed.type === 'file-start') {
-          incomingFiles[parsed.fileId] = {
-            chunks: new Array(parsed.totalChunks),
-            received: 0,
-            receivedBytes: 0,
-            total: parsed.totalChunks,
-            fileName: parsed.fileName,
-            fileType: parsed.fileType,
-            fileSize: parsed.fileSize
-          };
-        } else if (parsed.type === 'file-end') {
-          const f = incomingFiles[parsed.fileId];
-          if (f) {
-            const merged = new Uint8Array(f.fileSize);
-            let offset = 0;
-            for (let i = 0; i < f.chunks.length; i++) {
-              const chunk = new Uint8Array(f.chunks[i]);
-              merged.set(chunk, offset);
-              offset += chunk.byteLength;
-            }
-            const blob = new Blob([merged], { type: f.fileType });
-            const url = URL.createObjectURL(blob);
-            updateFileMessage(parsed.fileId, url, f);
-            delete incomingFiles[parsed.fileId];
-          }
-        }
-      } catch {
-        addMessage('in', data);
-      }
-    }
-  });
-
-  conn.on('close', () => {
-    console.log('[Conn] 连接关闭');
-    addSystem('对方已断开');
-    setStatus('disconnected', '已断开');
-    conn = null;
-  });
-
-  conn.on('error', (err) => {
-    console.error('[Conn] 连接错误:', err.type, err.message);
-    addSystem('连接错误: ' + (err.type || err.message));
-    setStatus('disconnected', '错误');
-    conn = null;
-  });
-
-  conn.on('iceStateChanged', (state) => {
-    console.log('[ICE] 状态:', state);
-    addSystem('ICE: ' + state);
-  });
+  setStatus('connecting', '连接服务器...');
+  connectRelay();
 }
 
 function send(data) {
-  if (!conn || !conn.open) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
     showToast('未连接', 'error');
     return;
   }
-  conn.send(data);
+  ws.send(data);
 }
 
 function sendText() {
@@ -741,7 +686,7 @@ function sendText() {
 }
 
 function sendFile(file) {
-  if (!conn || !conn.open) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
     showToast('未连接', 'error');
     return;
   }
@@ -777,7 +722,7 @@ function sendFile(file) {
         const packet = new Uint8Array(header.byteLength + raw.byteLength);
         packet.set(new Uint8Array(header), 0);
         packet.set(new Uint8Array(raw), header.byteLength);
-        conn.send(packet.buffer);
+        ws.send(packet.buffer);
         chunkIndex++;
         sent += raw.byteLength;
         updateProgress(fileId, Math.round((sent / file.size) * 100));
@@ -901,8 +846,7 @@ function autoResize(el) {
 }
 
 function leaveRoom() {
-  if (conn) { conn.close(); conn = null; }
-  if (peer) { peer.destroy(); peer = null; }
+  if (ws) { ws.close(); ws = null; }
   roomCode = '';
   isHost = false;
   $messages.innerHTML = '<div class="empty-chat" id="emptyState"><span class="icon">💬</span><span>等待对方加入...</span><span style="font-size:13px">分享房间号给对方</span></div>';
@@ -910,7 +854,7 @@ function leaveRoom() {
 }
 
 window.addEventListener('beforeunload', () => {
-  if (peer) { peer.destroy(); peer = null; }
+  if (ws) { ws.close(); ws = null; }
 });
 
 // Register service worker for PWA

@@ -427,14 +427,6 @@ let pendingFiles = [];
 let incomingFiles = {};
 const CHUNK_SIZE = 16 * 1024;
 
-// Generate a 6-char room code (uppercase letters + digits, no ambiguous chars)
-function genRoomCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-  return code;
-}
-
 function showScreen(name) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   if (name === 'join') $join.classList.add('active');
@@ -540,7 +532,11 @@ function sendPreviewFile() {
 
 async function createRoom() {
   const input = $roomInput.value.trim().toUpperCase();
-  roomCode = (input.length === 6 && /^[A-Z0-9]+$/.test(input)) ? input : genRoomCode();
+  if (input.length !== 6 || !/^[A-Z0-9]+$/.test(input)) {
+    showToast('请输入6位房间号', 'error');
+    return;
+  }
+  roomCode = input;
   isHost = true;
   await initPeer('chatlink-' + roomCode);
   showScreen('chat');

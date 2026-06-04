@@ -584,15 +584,8 @@ function initPeer(id) {
 
     peer.on('error', (err) => {
       console.error('Peer error:', err);
-      if (err.type === 'unavailable-id') {
-        peer = new Peer(id + '-' + Date.now().toString(36), {
-          host: '0.peerjs.com', port: 443, secure: true, debug: 0
-        });
-        peer.on('open', () => resolve());
-      } else {
-        showToast('连接失败: ' + (err.message || err.type), 'error');
-        reject(err);
-      }
+      showToast('连接失败: ' + (err.message || err.type), 'error');
+      reject(err);
     });
 
     peer.on('connection', (incoming) => {

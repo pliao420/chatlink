@@ -533,6 +533,7 @@ function sendPreviewFile() {
 }
 
 const RELAY_WS = 'ws://124.221.100.11:8080/ws';
+const SERVER = 'http://124.221.100.11:8080';
 
 function connectRelay() {
   ws = new WebSocket(RELAY_WS);
@@ -621,6 +622,60 @@ function handleWSMessage(msg) {
         addSystem('文件已就绪');
       }
       break;
+    case 'file-ready':
+      addReceivedFile(msg.fileId, msg.fileName, msg.fileType, msg.fileSize, msg.url);
+      break;
+    case 'history':
+      addSystem('加载历史消息 (' + msg.messages.length + '条)');
+      msg.messages.forEach(m => {
+        if (m.type === 'text') addMessage('in', m.content);
+        if (m.type === 'file-ready') addReceivedFile(m.fileId, m.fileName, m.fileType, m.fileSize, m.url);
+      });
+      break;
+  }
+}
+
+function addReceivedFile(fileId, fileName, fileType, fileSize, url) {
+  // Remove progress bar message if exists
+  const pb = document.getElementById('progress-bar-' + fileId);
+  if (pb) pb.parentElement.parentElement.parentElement.remove();
+  // Add file card
+  if (fileType.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = SERVER + url;
+    img.onclick = () => openPreview(SERVER + url, 'image');
+    addMessage('in', '', { fileType, fileName, fileSize, fileId });
+    const bubbles = $messages.querySelectorAll('.msg-row.in .msg-bubble');
+    const last = bubbles[bubbles.length - 1];
+    if (last) { last.innerHTML = ''; last.appendChild(img); }
+  } else if (fileType.startsWith('video/')) {
+    const vid = document.createElement('video');
+    vid.src = SERVER + url;
+    vid.controls = true;
+    vid.playsInline = true;
+    addMessage('in', '', { fileType, fileName, fileSize, fileId });
+    const bubbles = $messages.querySelectorAll('.msg-row.in .msg-bubble');
+    const last = bubbles[bubbles.length - 1];
+    if (last) { last.innerHTML = ''; last.appendChild(vid); }
+  } else {
+    addMessage('in', '', { fileType: 'file', fileName, fileSize });
+    const bubbles = $messages.querySelectorAll('.msg-row.in .msg-bubble');
+    const last = bubbles[bubbles.length - 1];
+    if (last) {
+      last.innerHTML = '';
+      const card = document.createElement('div');
+      card.className = 'file-card';
+      card.onclick = () => { const a = document.createElement('a'); a.href = SERVER + url; a.download = fileName; a.click(); };
+      const icon = document.createElement('span');
+      icon.className = 'file-icon';
+      icon.textContent = '📄';
+      card.appendChild(icon);
+      const info = document.createElement('div');
+      info.className = 'file-info';
+      info.innerHTML = '<strong>' + fileName + '</strong><br><span class="file-size">' + formatSize(fileSize) + '</span>';
+      card.appendChild(info);
+      last.appendChild(card);
+    }
   }
 }
 

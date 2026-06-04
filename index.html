@@ -531,7 +531,7 @@ function sendPreviewFile() {
   closePreview();
 }
 
-const RELAY = 'chatlink-relay.deno.dev';
+const RELAY = 'chatlink.pliao420.deno.net';
 function connectRelay() {
   const relayUrl = location.hostname === 'localhost' ? 'ws://localhost:8080/ws' : 'wss://' + RELAY + '/ws';
   ws = new WebSocket(relayUrl);

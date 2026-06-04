@@ -69,6 +69,11 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Health check
+  if (url.pathname === "/ping") {
+    return new Response("ok", { headers: { "content-type": "text/plain" } });
+  }
+
   // Serve static files
   let filePath = url.pathname === "/" ? "/index.html" : url.pathname;
   try {

@@ -563,6 +563,7 @@ async function joinRoom() {
   await initPeer('chatlink-client-' + Date.now().toString(36));
   setStatus('connecting', '正在连接...');
 
+  console.log('[Join] 发起连接, 目标:', 'chatlink-' + roomCode);
   conn = peer.connect('chatlink-' + roomCode, { reliable: true, serialization: 'binary' });
   setupConnection(conn);
 
@@ -580,18 +581,25 @@ function initPeer(id) {
       host: '0.peerjs.com',
       port: 443,
       secure: true,
-      debug: 0
+      debug: 3
     });
 
-    peer.on('open', () => resolve());
+    peer.on('open', (pid) => {
+      console.log('[Peer] 信令已连接, ID:', pid);
+      addSystem('信令服务器已连接');
+      resolve();
+    });
 
     peer.on('error', (err) => {
-      console.error('Peer error:', err);
+      console.error('[Peer] 错误:', err.type, err.message);
+      addSystem('信令错误: ' + (err.message || err.type));
       showToast('连接失败: ' + (err.message || err.type), 'error');
       reject(err);
     });
 
     peer.on('connection', (incoming) => {
+      console.log('[Peer] 收到连接请求, peer:', incoming.peer);
+      addSystem('检测到对方加入...');
       if (isHost) {
         if (conn) { conn.close(); }
         conn = incoming;
@@ -600,6 +608,8 @@ function initPeer(id) {
     });
 
     peer.on('disconnected', () => {
+      console.log('[Peer] 信令断开');
+      addSystem('信令服务器断开，尝试重连...');
       if (peer && !peer.destroyed) peer.reconnect();
     });
   });
@@ -607,8 +617,10 @@ function initPeer(id) {
 
 function setupConnection(c) {
   conn = c;
+  console.log('[Conn] 初始化连接, peer:', c.peer);
 
   conn.on('open', () => {
+    console.log('[Conn] 数据通道已打开');
     addSystem('已连接！可以开始聊天了');
     setStatus('connected', '已连接');
   });
@@ -673,15 +685,22 @@ function setupConnection(c) {
   });
 
   conn.on('close', () => {
+    console.log('[Conn] 连接关闭');
     addSystem('对方已断开');
     setStatus('disconnected', '已断开');
     conn = null;
   });
 
   conn.on('error', (err) => {
-    addSystem('连接错误: ' + err.message);
+    console.error('[Conn] 连接错误:', err.type, err.message);
+    addSystem('连接错误: ' + (err.type || err.message));
     setStatus('disconnected', '错误');
     conn = null;
+  });
+
+  conn.on('iceStateChanged', (state) => {
+    console.log('[ICE] 状态:', state);
+    addSystem('ICE: ' + state);
   });
 }
 

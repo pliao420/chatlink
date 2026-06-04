@@ -38,9 +38,11 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 
 wss.on('connection', (ws) => {
   let room = null;
+  console.log('[connect]', cid);
   const cid = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   ws.on('message', (data) => {
+  console.log('[msg]', cid, typeof data);
     const isBinary = Buffer.isBuffer(data) || data instanceof ArrayBuffer;
     const raw = Buffer.isBuffer(data) ? data : Buffer.from(data);
 

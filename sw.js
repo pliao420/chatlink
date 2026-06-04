@@ -1,4 +1,4 @@
-const CACHE = 'chatlink-v2';
+const CACHE = 'chatlink-v3';
 
 self.addEventListener('install', e => {
   self.skipWaiting();
@@ -6,9 +6,11 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => {
-    return Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
-  }));
+  e.waitUntil(
+    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(() => clients.claim())
+    .then(() => clients.matchAll().then(clients => clients.forEach(c => c.postMessage('reload'))))
+  );
 });
 
 self.addEventListener('fetch', e => {

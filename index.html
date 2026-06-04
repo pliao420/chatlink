@@ -869,6 +869,10 @@ function leaveRoom() {
   showScreen('join');
 }
 
+window.addEventListener('beforeunload', () => {
+  if (peer) { peer.destroy(); peer = null; }
+});
+
 // Register service worker for PWA
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js');
